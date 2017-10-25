@@ -2,7 +2,42 @@
 #define VECTOR_H
 
 #include <cmath>
+#include <vector>
 #include <algorithm>
+
+class Quat {
+  public:
+    union {
+      float data[4];
+      struct {
+        float x;
+        float y;
+        float z;
+        float w;
+      };
+    };
+
+    Quat() {
+      x = 0;
+      y = 0;
+      z = 0;
+      w = 0;
+    }
+
+    Quat(float ax, float ay, float az, float aw) {
+      x = ax;
+      y = ay;
+      z = az;
+      w = aw;
+    }
+
+    Quat(const Quat &q) {
+      x = q.x;
+      y = q.y;
+      z = q.z;
+      w = q.w;
+    }
+};
 
 // 3D Vector Class
 // Can also be used for 2D vectors
@@ -177,40 +212,35 @@ class Vec {
           z = std::max<float>(z, o.z);
           return *this;
         }
-};
 
-class Quat {
-  public:
-    union {
-      float data[4];
-      struct {
-        float x;
-        float y;
-        float z;
-        float w;
-      };
-    };
+        float distanceTo(const Vec &v) const {
+          return (*this - v).magnitude();
+        }
 
-    Quat() {
-      x = 0;
-      y = 0;
-      z = 0;
-      w = 0;
-    }
+        float distanceToSq(const Vec &v) const {
+          return (*this - v).magnitude_sqr();
+        }
 
-    Quat(float ax, float ay, float az, float aw) {
-      x = ax;
-      y = ay;
-      z = az;
-      w = aw;
-    }
+        Vec &applyQuaternion(const Quat &q) {
+          float x = this->x, y = this->y, z = this->z;
+          float qx = q.x, qy = q.y, qz = q.z, qw = q.w;
 
-    Quat(const Quat &q) {
-      x = q.x;
-      y = q.y;
-      z = q.z;
-      w = q.w;
-    }
+          // calculate quat * vector
+
+          float ix = qw * x + qy * z - qz * y;
+          float iy = qw * y + qz * x - qx * z;
+          float iz = qw * z + qx * y - qy * x;
+          float iw = - qx * x - qy * y - qz * z;
+
+          // calculate result * inverse quat
+
+          this->x = ix * qw + iw * - qx + iy * - qz - iz * - qy;
+          this->y = iy * qw + iw * - qy + iz * - qx - ix * - qz;
+          this->z = iz * qw + iw * - qz + ix * - qy - iy * - qx;
+
+          return *this;
+
+        }
 };
 
 class Tri {
@@ -241,6 +271,14 @@ class Tri {
         return result;
       }
       return Vec(0, 0, 0);
+    }
+
+    Vec midpoint() const {
+      Vec result(a);
+      result += b;
+      result += c;
+      result *= 1.0/3.0;
+      return result;
     }
 };
 
@@ -337,6 +375,13 @@ class Plane {
       return *this;
     }
 
+    Plane &setFromNormalAndCoplanarPoint(const Vec &normal, const Vec& point) {
+      this->normal = normal;
+      this->constant = -(point * normal);
+
+      return *this;
+    }
+
     Plane &normalize() {
       float inverseNormalLength = 1.0 / normal.magnitude();
       normal *= inverseNormalLength;
@@ -347,6 +392,78 @@ class Plane {
 
     float distanceToPoint(const Vec &point) const {
       return normal * point + constant;
+    }
+
+    Vec projectPoint(const Vec &p) const {
+      return (this->normal * -this->distanceToPoint(p)) + p;
+    }
+};
+
+class PointPlane : public Plane {
+  public:
+    Vec midpoint;
+
+    PointPlane() : Plane() {}
+
+    PointPlane(const Tri &t) : Plane() {
+      this->midpoint = t.midpoint();
+      this->setFromNormalAndCoplanarPoint(t.normal(), this->midpoint);
+    }
+};
+
+class Box {
+  public:
+    Vec center;
+    Quat rotation;
+    Vec size;
+    Vec points[4 * 3];
+
+    Box(const Vec &center, const Quat &rotation, const Vec &size) : center(center), rotation(rotation), size(size) {
+      unsigned int index = 0;
+      for (unsigned int dy = -1; dy <= 1; dy++) {
+        for (unsigned int dz = -1; dz <= 1; dz++) {
+          if (dz == 0) break;
+          for (unsigned int dx = -1; dx <= 1; dx++) {
+            if (dx == 0) break;
+          
+            Vec point(this->center);
+            point += Vec((this->size.x / 2.0) * dx, (this->size.y / 2.0) * dy, (this->size.z / 2.0) * dz).applyQuaternion(this->rotation);
+            points[index++] = point;
+          }
+        }
+      }
+    }
+
+    Box &operator+=(const Vec &v) {
+      this->center += v;
+
+      for (unsigned int i = 0; i < (4 * 3); i++) {
+        this->points[i] += v;
+      }
+
+      return *this;
+    }
+
+    bool restitute(const PointPlane &plane) {
+      bool floored = false;
+      for (unsigned int i = 0; i < (4 * 3); i++) {
+        const Vec &boxPoint = points[i];
+
+        if (plane.midpoint.distanceToSq(boxPoint) <= 1.0) {
+          const float mirrorDistance = plane.distanceToPoint(boxPoint);
+
+          if (mirrorDistance < 0.0) {
+            const Vec &projectedPoint = plane.projectPoint(boxPoint);
+            const Vec &restitutionVector = projectedPoint - boxPoint;
+            *this += restitutionVector;
+
+            if (!floored && std::abs(plane.normal.y) >= 0.5) {
+              floored = true;
+            }
+          }
+        }
+      }
+      return floored;
     }
 };
 

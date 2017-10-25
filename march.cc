@@ -1,5 +1,7 @@
 #include "march.h"
+#include "vector.h"
 #include <cstdlib>
+#include <algorithm>
 // #include <iostream>
 
 int edgeTable[256]={
@@ -318,15 +320,6 @@ int edgeIndex[12][2] = {
 };
 
 void marchingCubes(int dims[3], float *potential, int shift[3], int indexOffset, float *positions, unsigned int *faces, unsigned int &positionIndex, unsigned int &faceIndex) {
-  /* if(!bounds) {
-    bounds = [[0,0,0], dims];
-  }
-  for(var i=0; i<3; ++i) {
-    shift[i] = bounds[0][i];
-  } */
-
-  // std::cout << "got dims " << dims[0] << ":" << dims[1] << ":" << dims[2] << ":" << shift[0] << ":" << shift[1] << ":" << shift[2] << "\n";
-
   positionIndex = 0;
   faceIndex = 0;
 
@@ -348,10 +341,7 @@ void marchingCubes(int dims[3], float *potential, int shift[3], int indexOffset,
         (((x[2]+v[2])+shift[2]) * dims[0]) +
         ((x[1]+v[1]+shift[1]) * dims[0] * dims[1])
       ];
-/* std::cout << "check potential " <<
-  (x[0]+v[0]+shift[0]) << ":" <<
-  ((x[1]+v[1]+shift[1])) << ":" <<
-  ((x[2]+v[2])+shift[2]) << "\n"; */
+
       grid[i] = s;
       cube_index |= (s > 0) ? 1 << i : 0;
     }
@@ -386,4 +376,50 @@ void marchingCubes(int dims[3], float *potential, int shift[3], int indexOffset,
       faceIndex += 3;
     }
   }
+}
+
+bool collideBoxEther(int dims[3], float *potential, float *boxSpec) {
+  int shift[3] = {0};
+  float positions[1024];
+  unsigned int indices[1024];
+  unsigned int numPositions;
+  unsigned int numIndices;
+
+  marchingCubes(dims, potential, shift, 0, positions, indices, numPositions, numIndices);
+
+  std::vector<PointPlane> planes;
+  planes.reserve(numIndices / 3);
+  for (unsigned int i = 0; i < numIndices / 3; i++) {
+    Tri t(
+      Vec(positions[indices[(i + 0) * 3 + 0]], positions[indices[(i + 0) * 3 + 1]], positions[indices[(i + 0) * 3 + 2]]),
+      Vec(positions[indices[(i + 1) * 3 + 0]], positions[indices[(i + 1) * 3 + 1]], positions[indices[(i + 1) * 3 + 2]]),
+      Vec(positions[indices[(i + 2) * 3 + 0]], positions[indices[(i + 2) * 3 + 1]], positions[indices[(i + 2) * 3 + 2]])
+    );
+    PointPlane p(t);
+    planes.push_back(p);
+  }
+
+  Box box(
+    Vec(boxSpec[0], boxSpec[1], boxSpec[2]),
+    Quat(boxSpec[3], boxSpec[4], boxSpec[5], boxSpec[6]),
+    Vec(boxSpec[7], boxSpec[8], boxSpec[9])
+  );
+
+  std::sort(planes.begin(), planes.end(), [&](const PointPlane &a, const PointPlane &b) -> bool {
+    return a.midpoint.distanceToSq(box.center) < b.midpoint.distanceToSq(box.center);
+  });
+
+
+  bool floored = false;
+  for (const auto &plane : planes) {
+    if (box.restitute(plane)) {
+      floored = true;
+    }
+  }
+
+  boxSpec[0] = box.center.x;
+  boxSpec[1] = box.center.y;
+  boxSpec[2] = box.center.z;
+
+  return floored;
 }

@@ -85,4 +85,8 @@ EMSCRIPTEN_KEEPALIVE unsigned int cllObjects(float *hmdPosition, float *projecti
   return cullObjects(hmdPosition, projectionMatrix, matrixWorldInverse, frustumCulled != 0, mapChunkMeshes, numMapChunkMeshes, groups);
 }
 
+EMSCRIPTEN_KEEPALIVE unsigned int collideBoxEther(int dims[3], float *potential, float *boxSpec) {
+  return (unsigned int)collideBoxEther(dims, potential, boxSpec);
+}
+
 }
